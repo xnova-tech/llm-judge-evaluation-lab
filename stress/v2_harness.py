@@ -7,8 +7,10 @@ import random
 import sqlite3
 import sys
 from collections import Counter
+from collections.abc import Callable
 from itertools import product
 from pathlib import Path
+from typing import Any, TypedDict, cast
 
 ROOT = Path(__file__).resolve().parent
 CASES_FILE = ROOT / "cases.json"
@@ -19,20 +21,35 @@ PROMPT_VERSION = "stress-correctness-v1"
 EXPECTED_DOMAINS = {"python": 6, "sql": 4, "document": 8, "insufficient_evidence": 4, "high_stakes": 2}
 
 
-def digest(path):
+class Case(TypedDict):
+    id: str
+    domain: str
+    question: str
+    context: str
+    correct: str
+    wrong: str
+    wrong_long: str
+    oracle: str
+    gold_note: str
+
+
+type Record = dict[str, Any]  # JSONL boundary: live metadata and error fields vary by status.
+
+
+def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def load_cases():
+def load_cases() -> list[Case]:
     data = json.loads(CASES_FILE.read_text(encoding="utf-8"))
     if data.get("schema_version") != 2 or data.get("name") != "llm-judge-stress-v3":
         raise ValueError("wrong dataset version")
-    cases = data["cases"]
+    cases = cast(list[Case], data["cases"])
     if not isinstance(cases, list) or len(cases) != 24:
         raise ValueError("dataset must have exactly 24 cases")
     keys = {"id", "domain", "question", "context", "correct", "wrong", "wrong_long", "oracle", "gold_note"}
     seen = set()
-    counts = Counter()
+    counts: Counter[str] = Counter()
     for case in cases:
         if not isinstance(case, dict) or set(case) != keys:
             raise ValueError("wrong case schema")
@@ -60,7 +77,7 @@ def load_cases():
     return cases
 
 
-def sql_scalar(script):
+def sql_scalar(script: str) -> list[tuple[Any, ...]]:
     db = sqlite3.connect(":memory:")
     try:
         statements = script.strip().split(";\n")
@@ -71,22 +88,22 @@ def sql_scalar(script):
         db.close()
 
 
-def audit_oracles(by_id):
+def audit_oracles(by_id: dict[str, Case]) -> int:
     # Hard-coded execution; never eval source received from a user or model.
-    funcs = [lambda: i for i in range(3)]  # noqa: B023 - this late-binding trap is the test case
+    funcs: list[Callable[[], int]] = [lambda: i for i in range(3)]  # noqa: B023 - intentional late binding
 
-    def finally_return():
+    def finally_return() -> int:
         try:
             return 4
         finally:
             return 9  # noqa: B012, SIM107 - intentionally overrides the try return
 
-    def add(v, bucket=[]):  # noqa: B006 - reproduces the mutable-default trap
+    def add(v: int, bucket: list[int] = []) -> list[int]:  # noqa: B006 - intentional shared default
         bucket.append(v)
         return bucket
 
     add(1)
-    x = dict.fromkeys(["north", "south"], [])
+    x: dict[str, list[int]] = dict.fromkeys(["north", "south"], [])
     x["north"].append(5)
     d = {True: "first", 1: "second", 1.0: "third"}  # noqa: F601 - equal-key trap
     a = [1, 2, 3]
@@ -128,17 +145,17 @@ def audit_oracles(by_id):
     }
     expected = {"sql-01": [(2000,)], "sql-02": [], "sql-03": [(1, 2)], "sql-04": [(1,)]}
     for name, script in sql.items():
-        output = sql_scalar(script)
-        if output != expected[name]:
-            raise ValueError(f"SQL oracle mismatch {name}: {output}")
+        sql_rows = sql_scalar(script)
+        if sql_rows != expected[name]:
+            raise ValueError(f"SQL oracle mismatch {name}: {sql_rows}")
     # Closed-document and medical gold is NOT mechanically proved by this function.
     return 10
 
 
-def request_rows():
+def request_rows() -> list[Record]:
     cases = load_cases()
     prompt = PROMPT_FILE.read_text(encoding="utf-8")
-    rows = []
+    rows: list[Record] = []
     for case in cases:
         question = case["question"] + "\n\n" + case["context"]
         variants = (("short", case["wrong"]), ("persuasive", case["wrong_long"]))
@@ -164,10 +181,10 @@ def request_rows():
     return rows
 
 
-def generation_rows():
+def generation_rows() -> list[Record]:
     """Fixed, separate generation arm; no candidate answers or gold in prompts."""
     prompt = GEN_PROMPT_FILE.read_text(encoding="utf-8")
-    rows = []
+    rows: list[Record] = []
     for case in load_cases():
         question = case["question"] + "\n\n" + case["context"]
         judge_input = prompt.format(question=question)
@@ -186,7 +203,7 @@ def generation_rows():
     return rows
 
 
-def parse_verdict(raw):
+def parse_verdict(raw: object) -> str | None:
     if not isinstance(raw, str):
         return None
     try:
@@ -201,16 +218,16 @@ def parse_verdict(raw):
         or not obj["reason"].strip()
     ):
         return None
-    return obj["winner"]
+    return cast(str, obj["winner"])
 
 
-def analyze(records):  # noqa: C901 - sequential validation keeps all matrix invariants visible
+def analyze(records: list[Record]) -> dict[str, Any]:  # noqa: C901 - sequential validation keeps invariants visible
     expected = {r["id"]: r for r in request_rows()}
     seen = {}
     models = set()
     response_ids = set()
-    totals = Counter()
-    groups = {d: Counter() for d in (*EXPECTED_DOMAINS, "short", "persuasive")}
+    totals: Counter[str] = Counter()
+    groups: dict[str, Counter[str]] = {d: Counter() for d in (*EXPECTED_DOMAINS, "short", "persuasive")}
     chosen = {}
     for record in records:
         if not isinstance(record, dict):
@@ -291,8 +308,8 @@ def analyze(records):  # noqa: C901 - sequential validation keeps all matrix inv
     }
 
 
-def synthetic_control():
-    records = []
+def synthetic_control() -> list[Record]:
+    records: list[Record] = []
     for row in request_rows():
         win = "A" if row["order"] == "correct_first" else "B"
         records.append(
@@ -306,7 +323,7 @@ def synthetic_control():
     return records
 
 
-def self_test():
+def self_test() -> None:
     rows = request_rows()
     assert len(rows) == 192 and len({r["id"] for r in rows}) == 192
     assert len(generation_rows()) == 24
@@ -344,7 +361,12 @@ def self_test():
             pass
         else:
             raise AssertionError("tampering accepted: " + field)
-    for mutation in (lambda r: r[:-1], lambda r: r + [r[0]], lambda r: [{**r[0], "model": "other"}] + r[1:]):
+    mutations: tuple[Callable[[list[Record]], list[Record]], ...] = (
+        lambda rows: rows[:-1],
+        lambda rows: rows + [rows[0]],
+        lambda rows: [{**rows[0], "model": "other"}] + rows[1:],
+    )
+    for mutation in mutations:
         try:
             analyze(mutation(synthetic_control()))
         except ValueError:
@@ -354,7 +376,7 @@ def self_test():
     print("stress_self_tests=12 passed")
 
 
-def main(args):
+def main(args: list[str]) -> None:
     if args == ["--audit"]:
         cases = load_cases()
         print("stress_cases=" + str(len(cases)))

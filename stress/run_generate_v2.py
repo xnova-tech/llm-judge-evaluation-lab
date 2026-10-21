@@ -15,7 +15,7 @@ from run_live_v2 import bound_usd  # noqa: E402 - required with -I
 from v2_harness import generation_rows, request_rows  # noqa: E402 - required with -I
 
 
-def main():
+def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--plan", action="store_true")
     p.add_argument("--output", type=Path)
@@ -50,7 +50,7 @@ def main():
     if min(input_rate, output_rate, budget) <= 0 or reserve > budget:
         p.error("approved budget insufficient for 2x combined token proxy reserve")
     sys.path.insert(0, str(ARTICLE / "examples"))
-    from run_live import MAX_COMPLETION_TOKENS, ApiConfig, send
+    from run_live import MAX_COMPLETION_TOKENS, ApiConfig, send  # type: ignore[import-not-found]
 
     config = ApiConfig(
         url=os.environ["JUDGE_API_URL"],

@@ -8,14 +8,15 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from generation_audit import audit
-from v2_harness import analyze, generation_rows, load_cases, request_rows, synthetic_control
+from v2_harness import Record, analyze, generation_rows, load_cases, request_rows, synthetic_control
 
 
 class StressV2Tests(unittest.TestCase):
-    def test_frozen_matrix_and_gold(self):
+    def test_frozen_matrix_and_gold(self) -> None:
         cases = load_cases()
         self.assertEqual(len(cases), 24)
         rows = request_rows()
@@ -27,19 +28,19 @@ class StressV2Tests(unittest.TestCase):
             for secret in ("gold_note", "correct_first", "wrong_first", "oracle", "case_id"):
                 self.assertNotIn(secret, row["judge_input"])
 
-    def test_zero_errors_synthetic_is_not_llm(self):
+    def test_zero_errors_synthetic_is_not_llm(self) -> None:
         r = analyze(synthetic_control())
         self.assertEqual((r["attempts"], r["valid"], r["correct_wins"], r["wrong_wins"]), (192, 192, 192, 0))
         self.assertEqual((r["position_pairs"], r["repeat_pairs"]), (96, 96))
 
-    def test_wrong_answer_is_detected(self):
+    def test_wrong_answer_is_detected(self) -> None:
         data = synthetic_control()
         rec = next(x for x in data if x["id"] == "code-01:short:1:correct_first")
         rec["raw_response"] = '{"winner":"B","reason":"negative"}'
         r = analyze(data)
         self.assertEqual((r["wrong_wins"], r["position_flips"], r["repeat_disagreements"]), (1, 1, 1))
 
-    def test_tie_and_invalid_and_refusal(self):
+    def test_tie_and_invalid_and_refusal(self) -> None:
         data = synthetic_control()
         data[0]["raw_response"] = '{"winner":"tie","reason":"indeterminate"}'
         data[1]["raw_response"] = '{"winner":"A"}'
@@ -47,20 +48,20 @@ class StressV2Tests(unittest.TestCase):
         r = analyze(data)
         self.assertEqual((r["ties"], r["invalid_output"], r["refusals"], r["valid"]), (1, 1, 1, 190))
 
-    def test_duplicate_and_missing_are_rejected(self):
+    def test_duplicate_and_missing_are_rejected(self) -> None:
         data = synthetic_control()
         for altered in (data[:-1], data + [data[0]]):
             with self.assertRaises(ValueError):
                 analyze(altered)
 
-    def test_tampered_hashes_are_rejected(self):
+    def test_tampered_hashes_are_rejected(self) -> None:
         for field in ("dataset_sha256", "request_sha256", "prompt_sha256", "judge_input"):
             data = synthetic_control()
             data[0][field] = "tampered"
             with self.assertRaises(ValueError):
                 analyze(data)
 
-    def test_generation_trace_integrity_not_truth(self):
+    def test_generation_trace_integrity_not_truth(self) -> None:
         records = [
             {
                 **r,
@@ -81,23 +82,23 @@ class StressV2Tests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 audit(f)
 
-    def test_reused_response_id_is_rejected(self):
+    def test_reused_response_id_is_rejected(self) -> None:
         data = synthetic_control()
         data[0]["response_id"] = "duplicate"
         data[1]["response_id"] = "duplicate"
         with self.assertRaises(ValueError):
             analyze(data)
 
-    def test_live_entry_points_with_offline_adapter(self):
+    def test_live_entry_points_with_offline_adapter(self) -> None:
         """Exercise both recorder paths with a fake transport and no API call."""
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
         import run_generate_v2
-        import run_live
+        import run_live  # type: ignore[import-not-found]  # Dynamic sibling CLI path.
         import run_live_v2
 
         calls = 0
 
-        def fake_send(row, config):
+        def fake_send(row: Record, config: Any) -> Record:
             nonlocal calls
             calls += 1
             if "order" in row:

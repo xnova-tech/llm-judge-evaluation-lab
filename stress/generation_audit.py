@@ -4,12 +4,13 @@
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from v2_harness import generation_rows  # noqa: E402 - isolated entry point needs its local module
 
 
-def audit(path):  # noqa: C901 - sequential checks preserve the record-integrity contract
+def audit(path: str | Path) -> dict[str, Any]:  # noqa: C901 - sequential integrity checks
     rows = [json.loads(ln) for ln in Path(path).read_text(encoding="utf-8").splitlines() if ln.strip()]
     expected = {r["id"]: r for r in generation_rows()}
     seen = set()

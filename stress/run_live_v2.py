@@ -12,17 +12,17 @@ HERE = Path(__file__).resolve().parent
 ARTICLE = HERE.parent
 sys.path.insert(0, str(HERE))
 MAX_COMPLETION_TOKENS = 256
-from v2_harness import SEED, generation_rows, request_rows  # noqa: E402 - required with -I
+from v2_harness import SEED, Record, generation_rows, request_rows  # noqa: E402 - required with -I
 
 
-def bound_usd(rows, input_rate, output_rate):
+def bound_usd(rows: list[Record], input_rate: float, output_rate: float) -> float:
     # Conservative preflight upper-bound proxy, not a guaranteed vendor invoice.
     input_proxy = sum(len(r["judge_input"].encode("utf-8")) + 200 for r in rows)
     output_limit = len(rows) * MAX_COMPLETION_TOKENS
     return 2 * (input_proxy * input_rate + output_limit * output_rate) / 1_000_000
 
 
-def main():
+def main() -> None:
     p = argparse.ArgumentParser(description="No retries, no overwrite; opt-in spend approval required")
     p.add_argument("--plan", action="store_true", help="Print matrix size only; no API calls")
     p.add_argument("--output", type=Path, help="Fresh JSONL path for 192 live requests")
@@ -72,7 +72,7 @@ def main():
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ARTICLE / "examples"))
-    from run_live import ApiConfig, send  # Reuse the existing adapter only after explicit run approval.
+    from run_live import ApiConfig, send  # type: ignore[import-not-found]  # Dynamic sibling CLI path.
 
     config = ApiConfig(
         url=url, model=model, key=os.environ["JUDGE_API_KEY"], ca_bundle=os.environ.get("JUDGE_CA_BUNDLE")
