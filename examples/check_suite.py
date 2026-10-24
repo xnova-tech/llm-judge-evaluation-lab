@@ -1,20 +1,20 @@
-"""Stable stdout wrapper for offline regression checks in article verify."""
+"""Run offline regression checks through pytest with stable summary output."""
 
 import io
 import sys
-import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import test_analysis  # noqa: E402
+import pytest
 
 
 def main() -> None:
-    suite = unittest.defaultTestLoader.loadTestsFromModule(test_analysis)
-    result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
-    if not result.wasSuccessful():
-        raise SystemExit("offline regression suite failed")
-    print(f"offline_regression_tests={result.testsRun} passed")
+    output = io.StringIO()
+    with redirect_stdout(output), redirect_stderr(output):
+        result = pytest.main(["-q", str(Path(__file__).with_name("test_analysis.py"))])
+    if result != pytest.ExitCode.OK or "9 passed" not in output.getvalue():
+        raise SystemExit(output.getvalue() or "offline regression suite failed")
+    sys.stdout.write("offline_regression_tests=9 passed\n")
 
 
 if __name__ == "__main__":

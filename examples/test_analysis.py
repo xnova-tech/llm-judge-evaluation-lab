@@ -3,8 +3,9 @@
 import hashlib
 import json
 import sys
-import unittest
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -41,54 +42,52 @@ def complete_control() -> list[dict[str, object]]:
     return records
 
 
-class AnalysisTests(unittest.TestCase):
+class TestAnalysis:
     def test_gold_and_frozen_matrix_have_no_label_leak(self) -> None:
         check_gold()
         rows = list(request_rows())
-        self.assertEqual(len(rows), 144)
-        self.assertEqual(len({row["id"] for row in rows}), 144)
-        self.assertEqual({row["domain"] for row in rows}, {"python", "http", "arithmetic"})
+        assert len(rows) == 144
+        assert len({row["id"] for row in rows}) == 144
+        assert {row["domain"] for row in rows} == {"python", "http", "arithmetic"}
         encoded = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows)
-        self.assertEqual(hashlib.sha256(encoded.encode("utf-8")).hexdigest(), FROZEN_MATRIX_SHA256)
+        assert hashlib.sha256(encoded.encode("utf-8")).hexdigest() == FROZEN_MATRIX_SHA256
         for row in rows:
-            self.assertNotIn("gold_label", row["judge_input"])
-            self.assertNotIn("correct_first", row["judge_input"])
-            self.assertNotIn(row["case_id"], row["judge_input"])
+            assert "gold_label" not in row["judge_input"]
+            assert "correct_first" not in row["judge_input"]
+            assert row["case_id"] not in row["judge_input"]
 
     def test_live_payload_sends_only_judge_text_and_frozen_parameters(self) -> None:
         row: RequestRow = next(request_rows())
         payload = request_payload(row, "test-model")
-        self.assertEqual(
-            set(payload), {"model", "messages", "max_completion_tokens", "reasoning_effort", "response_format"}
-        )
-        self.assertEqual(payload["messages"], [{"role": "user", "content": row["judge_input"]}])
-        self.assertEqual(payload["max_completion_tokens"], 256)
-        self.assertEqual(payload["reasoning_effort"], "none")
-        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        assert set(payload) == {"model", "messages", "max_completion_tokens", "reasoning_effort", "response_format"}
+        assert payload["messages"] == [{"role": "user", "content": row["judge_input"]}]
+        assert payload["max_completion_tokens"] == 256
+        assert payload["reasoning_effort"] == "none"
+        assert payload["response_format"] == {"type": "json_object"}
 
     def test_complete_correct_control(self) -> None:
         result = analyze_recorded(complete_control())
-        self.assertEqual((result["attempts"], result["valid"], result["wrong_wins"]), (144, 144, 0))
-        self.assertEqual((result["position_flips"], result["position_pairs"]), (0, 72))
-        self.assertEqual((result["repeat_disagreements"], result["repeat_pairs"]), (0, 72))
-        self.assertEqual([result["groups"][name]["valid"] for name in ("python", "http", "arithmetic")], [48, 48, 48])
-        self.assertEqual([result["groups"][name]["valid"] for name in ("short", "verbose")], [72, 72])
+        assert (result["attempts"], result["valid"], result["wrong_wins"]) == (144, 144, 0)
+        assert (result["position_flips"], result["position_pairs"]) == (0, 72)
+        assert (result["repeat_disagreements"], result["repeat_pairs"]) == (0, 72)
+        assert [result["groups"][name]["valid"] for name in ("python", "http", "arithmetic")] == [48, 48, 48]
+        assert [result["groups"][name]["valid"] for name in ("short", "verbose")] == [72, 72]
 
     def test_wrong_winner_and_reversal_use_candidate_identity(self) -> None:
         records = complete_control()
         target = next(row for row in records if row["id"] == "py-01:short:1:correct_first")
         target["raw_response"] = '{"winner":"B","reason":"Deliberately wrong control."}'
         result = analyze_recorded(records)
-        self.assertEqual(result["wrong_wins"], 1)
-        self.assertEqual(result["position_flips"], 1)
-        self.assertEqual(result["repeat_disagreements"], 1)
-        self.assertEqual(evaluate(fixture(), False)["wrong_wins"], 3)
+        assert result["wrong_wins"] == 1
+        assert result["position_flips"] == 1
+        assert result["repeat_disagreements"] == 1
+        assert evaluate(fixture(), False)["wrong_wins"] == 3
 
     def test_tie_is_valid_but_not_a_wrong_win(self) -> None:
         records = complete_control()
         records[0]["raw_response"] = '{"winner":"tie","reason":"Control tie."}'
         result = analyze_recorded(records)
-        self.assertEqual((result["valid"], result["ties"], result["wrong_wins"]), (144, 1, 0))
+        assert (result["valid"], result["ties"], result["wrong_wins"]) == (144, 1, 0)
 
     def test_invalid_json_and_schema_do_not_enter_valid_denominator(self) -> None:
         for bad in (
@@ -98,13 +97,12 @@ class AnalysisTests(unittest.TestCase):
             '{"winner":"A","reason":""}',
             '{"winner":"A","reason":"x","extra":1}',
         ):
-            with self.subTest(bad=bad):
-                self.assertIsNone(parse_response(bad))
+            assert parse_response(bad) is None
         records = complete_control()
         records[0]["raw_response"] = "not json"
         result = analyze_recorded(records)
-        self.assertEqual((result["valid"], result["invalid_output"]), (143, 1))
-        self.assertEqual(result["position_pairs"], 71)
+        assert (result["valid"], result["invalid_output"]) == (143, 1)
+        assert result["position_pairs"] == 71
 
     def test_refusal_timeout_and_api_error_stay_separate(self) -> None:
         records = complete_control()
@@ -112,10 +110,8 @@ class AnalysisTests(unittest.TestCase):
             record["status"] = status
             record["raw_response"] = ""
         result = analyze_recorded(records)
-        self.assertEqual(
-            (result["valid"], result["refusals"], result["timeouts"], result["api_errors"]), (141, 1, 1, 1)
-        )
-        self.assertEqual(result["invalid_output"], 0)
+        assert (result["valid"], result["refusals"], result["timeouts"], result["api_errors"]) == (141, 1, 1, 1)
+        assert result["invalid_output"] == 0
 
     def test_incomplete_duplicate_unknown_and_mixed_model_rejected(self) -> None:
         records = complete_control()
@@ -126,7 +122,7 @@ class AnalysisTests(unittest.TestCase):
             [{**records[0], "model": "other-model"}] + records[1:],
         )
         for corrupted in corruptions:
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 analyze_recorded(corrupted)
 
     def test_stale_prompt_or_request_rejected(self) -> None:
@@ -137,9 +133,5 @@ class AnalysisTests(unittest.TestCase):
             {"request_sha256": "0" * 64},
             {"judge_input": "changed"},
         ):
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 analyze_recorded([{**records[0], **changed}] + records[1:])
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -2,13 +2,14 @@
 
 Самостоятельный пример XNova содержит два набора с независимыми эталонами. В диагностическом наборе — 18 коротких заданий по Python, арифметике и HTTP, 144 парных решения. В сложном — 24 задания по Python, SQLite, закрытым документам, недостающим сведениям и проверке недоказанных медицинских утверждений, 192 парных решения и 24 отдельных свободных ответа. В сохранённых журналах GPT-5.6 Terra выбрала правильный кандидат во всех 144 и 192 парных предъявлениях. Все 24 свободных вывода согласуются с эталоном; два нарушают JSON-контракт по типу поля `answer`. Эти результаты относятся к фиксированным задачам, а не к произвольным запросам пользователей.
 
-Проект использует стандартную библиотеку Python 3.12 и не требует внешних пакетов для офлайн-проверки. Все данные заданий синтетические; ключи доступа и адрес сервиса в репозитории отсутствуют. Диагностическая матрица разделена между `examples/experiment_cases.py`, `experiment_matrix.py` и `experiment_analysis.py`. Сложная матрица, оракулы и её офлайн-анализатор находятся в `stress/`. Сетевые клиенты в обоих каталогах отделены от офлайн-команд.
+Основной код использует стандартную библиотеку Python 3.12; для тестов нужен `pytest==9.1.1` из `requirements-dev.txt`. Все данные заданий синтетические; ключи доступа и адрес сервиса в репозитории отсутствуют. Диагностическая матрица разделена между `examples/experiment_cases.py`, `experiment_matrix.py` и `experiment_analysis.py`. Сложная матрица, оракулы и её офлайн-анализатор находятся в `stress/`. Сетевые клиенты в обоих каталогах отделены от офлайн-команд.
 
 ## Проверить диагностический набор
 
 Из корня проекта выполните:
 
 ```bash
+python -m pip install -r requirements-dev.txt
 python -I examples/eval_harness.py --self-test
 python -I examples/check_suite.py
 python -I examples/eval_harness.py --analyze-recorded data/judge-run-gpt-5.6-terra-2026-10-22.jsonl
@@ -31,7 +32,7 @@ position_flips=0/72; repeat_disagreements=0/72
 ```bash
 python -I stress/v2_harness.py --audit
 python -I stress/v2_harness.py --self-test
-python stress/test_v2.py -q
+python -m pytest -q stress/test_v2.py
 python -I stress/v2_harness.py --analyze-recorded data/stress-v3-judge-gpt-5.6-terra-2026-10-22.jsonl
 python -I stress/generation_audit.py data/stress-v3-generation-gpt-5.6-terra-2026-10-22.jsonl
 ```
